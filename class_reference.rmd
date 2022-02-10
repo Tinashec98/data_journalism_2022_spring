@@ -23,6 +23,17 @@ Consider this a personal guide to the commands and functions you will learn. In 
 
 The command to set a working directory is setwd()
 
+##Things I learned on Feb. 1, 2022
+
+str_to_uppercase means the letters are uppercase
+
+##Things I learned on Feb. 8, 2022
+
+mutate(id = as.character(id))-- allows you to change the character type of a column. Key: change the "as.character" to "as.numeric" etc, etc. 
+
+How to find columns where the value is NA-- filter(is.na(column_name)) %>%
+How to find columns where the value is NOT NA-- filter(!is.na(column_name)) %>%
+
 ```{r}
 setwd("~/Documents/GitHub/data_journalism_2022_spring")
 ```
