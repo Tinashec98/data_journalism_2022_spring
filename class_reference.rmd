@@ -34,6 +34,12 @@ mutate(id = as.character(id))-- allows you to change the character type of a col
 How to find columns where the value is NA-- filter(is.na(column_name)) %>%
 How to find columns where the value is NOT NA-- filter(!is.na(column_name)) %>%
 
+##Things I learned on Feb. 10, 2022
+Standardize means to make a data set uniform e.g. make city names in "city" column all uppercase. 
+str_detect(city,"^Anld") is a code that commands the program to detect situations where "Anld" exists in the data. 
+Mutate is used to create a new variable. 
+Order- ascending.... desc- descending
+
 ```{r}
 setwd("~/Documents/GitHub/data_journalism_2022_spring")
 ```
