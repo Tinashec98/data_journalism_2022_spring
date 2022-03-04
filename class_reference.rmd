@@ -44,6 +44,10 @@ Order- ascending....desc- descending
 ##Things I learned on Feb. 15, 2022
 "bind_rows" stacks data from different data sets into one dataframe. The data is similar but not identical, fyi. bind_rows only works when the column names are *identical*.
 *"Error in join_rows(x_key, y_key, type = type, na_equal = na_equal)"* This means that the columns have a type mismatch- one column is a character column while another is a number column. 
+
+##Things I learned on Feb. 22, 2022
+*key_collision_merge* compares data from two columns and finds that which is most similar. 
+
 >>>>>>> Stashed changes
 ```{r}
 setwd("~/Documents/GitHub/data_journalism_2022_spring")
