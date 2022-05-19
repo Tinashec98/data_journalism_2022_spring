@@ -1,0 +1,277 @@
+---
+title: "state_profile"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## PPP State Profile
+
+Your assignment is to explore a dataset of PPP loan applications for a particular state and to answer a series of questions that will help you summarize that state's loan applications. You will need to write R code to answer those questions. You also will bring in other data, including Census information, and you will be making graphics, including maps, to illustrate your findings.
+
+The deliverable will be this R Markdown notebook and a data folder that you will receive with a state's loan application data. Place any other data you are using to answer the questions in the same data folder.
+
+## Load libraries and establish settings
+
+**Task** Create a codeblock and load appropriate packages and settings for this assignment.
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(janitor)
+library(refinr)
+library(rvest)
+library(tidycensus)
+library(ggthemes)
+library(tigris)
+library(sf)
+library(ggrepel)
+library(corrr)
+library(tidytext)
+
+```
+
+## Initial Exploration
+
+**Q1.**. Write R code that generates some basic descriptive statistics that allows you to describe the applications from your state. This code should produce results that describe the data in different ways: how many applications there are, along with ways to understand the typical and most frequent values for columns you find interesting or newsworthy. You should produce at least five (5) descriptive statistics and write up a summary of the data using them.
+
+```{r}
+
+delaware_ppp_loans <- read.csv("data/delaware_ppp.csv")
+
+#Total number of loan applications
+glimpse(delaware_ppp_loans)
+
+#Companies with the largest and least loan amounts
+delaware_ppp_loans %>% 
+  group_by(name) %>%
+  arrange(desc(amount))
+
+#Company with the largest number of  loan applications
+delaware_ppp_loans %>% 
+  group_by(name) %>% 
+  summarise(amount = n()) %>% 
+  arrange(desc(amount))
+
+#Summary of the loans including the mean and median
+delaware_summary <- delaware_ppp_loans %>% 
+  group_by(name) %>% 
+  mutate(count_of_loans = n(), total_loans = sum(amount), mean_loans = mean(amount), median_loans = median(amount), min_loans = min(amount), max_loans = max(amount))%>%
+  select(name, amount, address, city, zip, naics_code, count_of_loans, total_loans, mean_loans, median_loans, min_loans, max_loans) 
+```
+
+**A1.** 
+
+There are 27,733 loan applications. 
+
+The company with the largest loan amount is Connections Community (https://opencorporates.com/companies/us_de/3507805). The following four are Iron Hill Brewery, LLC (https://opencorporates.com/companies/us_de/7371525), 47th and 7th LLC (https://opencorporates.com/companies/us_de/7636007), M. Davis & Sons, Inc (https://opencorporates.com/companies/us_de/798630), and Worth & Company, Inc (did not appear on Open corporations). 
+
+Only Connections Community and 47th and 7th LLC got their loans from a bank. The other three got their loans from Wilmington Savings Fund Society, FSB.
+
+Vincent Farms had the lowest loan amount of $408,400.It got its loan from ReadyCap Lending, LLC, a private lending company based in New Jersey. 
+
+The company that filed the largest number of loan applications is Marcus Brown— this seems to be a person. 
+
+
+## Geographic Analysis
+
+**Q2.** Write R code that examines geographic patterns for PPP loans in your state, using Census population information to calculate a per-capita figure for the state and counties and zip codes. Then, make a county map using ggplot showing the per-capita data and a zip code map showing the difference from the statewide per-capita figure. Describe the most interesting or newsworthy findings based on your exploration.
+
+```{r}
+
+#Delaware population info
+vars <- load_variables(year = 2019,
+                       dataset = "acs5",
+                       cache = TRUE)
+
+delaware_population <- get_acs(geography = "state",
+                  variables = c(estimate = "B01001_001"),
+                  state = "DE",
+                  year = 2019)
+
+#Calculating per capita figure for the state
+
+state_population <- delaware_population %>% 
+  select(-variable, -moe) %>% 
+  rename("population" = "estimate") %>% 
+  mutate(total_ppp_loans = 156481) %>%
+  mutate(loans_percapita = total_ppp_loans/population) %>% 
+  mutate(loans_per100k = loans_percapita * 100000)
+
+#Calculating per capita figure by county
+de_county_pop <- get_acs(geography = "county",
+                         variables = c(estimate = "B01001_001"),
+                         state = "DE",
+                         year = 2019)
+
+de_county_pop <- de_county_pop %>% 
+  mutate(NAME = gsub(" County, Delaware", "", NAME))
+
+de_county_pop$NAME = toupper(de_county_pop$NAME)
+
+de_county_pop <- de_county_pop %>% 
+  select(-variable, -moe) %>% 
+  rename("population" = "estimate")
+
+#Counties with the most loans
+de_county_loans <- delaware_ppp_loans %>% 
+  group_by(project_county_name) %>% 
+  summarise(count_of_loans = n()) %>% 
+  rename("NAME" = "project_county_name") %>%
+  arrange(desc(count_of_loans))
+
+
+#Combined
+de_county_100k <- de_county_pop %>% 
+  inner_join(de_county_loans, by=c("NAME")) %>% 
+  mutate(county_loans_percapita = count_of_loans/population) %>% 
+  mutate(loans_per100k = county_loans_percapita *100000) %>% 
+  arrange(desc(loans_per100k))
+
+
+#Zip Codes
+de_ppp_w_zips <- delaware_ppp_loans %>% 
+  mutate(zip5 = str_sub(zip, 1, 5)) 
+
+top_de_zips <- de_ppp_w_zips %>% 
+  group_by(zip5) %>% 
+  summarise(total = n()) %>% 
+  arrange(desc(total))
+
+top_de_zips <- top_de_zips %>% 
+  rename("GEOID" = "zip5")
+
+de_zips <- get_acs(geography = "zcta",
+                   variables = c(estimate = "B01001_001"),
+                   state = "DE",
+                   year = 2019)%>%
+                  arrange(desc(estimate))
+
+de_zips_per100k <- de_zips %>% 
+  left_join(top_de_zips, by=c("GEOID")) %>% 
+  select(-NAME, -variable, -moe) %>% 
+  rename("population" = "estimate") %>% 
+  rename("total_loans" = "total")
+  
+
+de_zips_per1k <- de_zips_per100k %>% 
+  mutate(zip_loans_percapita = total_loans/population) %>%
+  mutate(loans_per1k = zip_loans_percapita * 1000) %>% 
+  arrange(desc(total_loans)) %>% 
+  select(-loans_per1k)
+
+#County Map
+
+counties <- counties() 
+glimpse(counties)
+
+de_counties <- counties %>%
+  filter(STATEFP == "10")
+
+de_counties$NAME = toupper(de_counties$NAME)
+
+de_county_100k_geo <- de_counties %>% 
+  inner_join(de_county_100k, by=c("NAME"))
+
+ggplot() + 
+  geom_sf(data=de_county_100k_geo, aes(fill=loans_per100k)) + 
+  theme_minimal() +
+  scale_fill_viridis_b(option="magma",trans = "log")
+
+```
+
+**A2.** 
+
+There are 957,248 people in Delaware. The total number of PPP loans, per ACS data is 156,481. The loans per capita is 0.16. And the loans per 100k people is 16,346.97.
+
+The counties with the largest populations were New Castle (556,165), Sussex (224,384), and Kent(176,699). They also had the largest loan counts: New Castle (17,880), Sussex (6,052), and Kent (3,795). There was also a county labelled "NA" that had 3 loans. 
+
+The top 5 zip codes with the largest population are 19720, 19702, 19711, 19709, and 19701. The top 5 zip codes with the most total loans are 19720, 19702, 19801, 19808, and 19709.
+
+Based on the map, the most loans were in the northern third of the county. 
+
+## Lender Analysis
+
+**Q3.** Write R code to examine which lenders had the most approved applications in your state (and include summary statistics such as total amount and average loan amount). Generate dataframes that show the number and total amount of all loans and undisbursed loans per lender. For those lenders who had any undisbursed loans, make a graphic showing the relationship between the total amount of loans and the total undisbursed amount. Describe the most noticeable outlier lenders on that graphic below.
+
+```{r}
+
+amounts_undisbursed <- de_ppp_w_zips %>% 
+  select(name, amount, lender, undisbursed_amount, zip5, date_approved) %>%
+  arrange(desc(undisbursed_amount))
+
+lenders_undisbursed <- amounts_undisbursed %>% 
+  group_by(lender) %>% 
+  summarise(total_undisbursed_amount = sum(undisbursed_amount), total_amount = sum(amount)) %>%
+  arrange(desc(total_undisbursed_amount)) %>% 
+  head(10)
+
+write_csv(lenders_undisbursed, "lenders_amounts_undisbursed.csv")
+
+```
+
+**A3.** American Bank had the highest number of PPP loans issued. However, none of the banks had undisbursed loans, which is weird. https://datawrapper.dwcdn.net/2qmF1/1/ 
+
+
+## Industry Analysis
+
+**Q4.** Write R code that examines industry patterns for PPP loans in your state, using the NAICS codes from the PPP data as a starting point. Generate statewide and county industry totals, then join that with 2018-19 data from the [Census County Business Patterns survey](https://www2.census.gov/programs-surveys/cbp/datasets/2019/cbp19co.zip) using 6-digit NAICS codes. The documentation explaining that data can be found here: https://www2.census.gov/programs-surveys/cbp/technical-documentation/records-layouts/2018_record_layouts/county-layout-2018.txt. To do this, you will need to add FIPS codes to your PPP dataset.
+
+Does the distribution of PPP applications by the top 10 industries (by number of applications) roughly match the number of businesses reported in the Census data? Does it roughly match if you remove self-employed individuals and sole proprietorships from the PPP totals? Write up a summary of what you've found and whether there are potentially newsworthy patterns in the data.
+
+Create a county-level map showing the differences between the PPP applications and the Census business data for one of the top 10 industry codes. You can do this either using ggplot or Datawrapper (if the latter, publish that map and include the URL below).
+
+```{r}
+
+cbp_19_co <- read_delim("data/cbp19co.txt")
+
+de_cbp <- cbp_19_co %>% 
+  filter(fipstate == 10)
+
+naics_codes <- read_csv("data/naics_codes.csv")
+
+de_ppp_naics <- delaware_ppp_loans %>% 
+  inner_join(naics_codes, by="naics_code")%>% 
+  select(name, naics_code, naics_title, project_county_name)
+
+county_fips <- read_csv("data/county_fips.csv") 
+
+de_county_fips <- county_fips %>% 
+  filter(state == "DE")
+
+de_ppp_naics_fips <- de_ppp_naics %>% 
+  inner_join(de_county_fips, by=c("project_county_name" = "match_county")) %>% 
+  select(-state, -state_code, -state_name, -county_code, -county)
+
+de_ppp_naics_fips_state <- de_ppp_naics_fips %>% 
+  group_by(naics_code) %>% 
+  summarise(total = n()) %>% 
+  arrange(desc(total)) %>% 
+  head(11)
+
+de_ppp_naics_fips_county <- de_ppp_naics_fips %>% 
+  group_by(fips_code) %>% 
+  summarise(total = n()) %>% 
+  arrange(desc(total)) %>% 
+  mutate(total_businesses = sum(total))
+  head(10)
+
+de_ppp_naics_fips_state <- de_ppp_naics_fips_state %>% 
+  left_join(naics_codes, by=c("naics_code")) 
+
+de_ppp_naics_fips_state <- de_ppp_naics_fips_state %>% 
+  mutate( total_businesses = sum(total))
+
+```
+
+**A4.** State NAICS data shows that there are 6923 businesses while county NAICS FIPS data shows that there are 27,591 businesses. This disparity could point to an inconsistency in FIPS labeling how self-employed individuals are counted in census data. 
+
+## Summary
+
+**Q5.** What is the most promising story idea that you have found during this exploration? How would you approach reporting it out and what other information/data would you need to do that? What would be the minimum story you could get from this, and what would be the maximum story?
+
+**A5.**
+
+An intriguing story idea would be to explore what it is about the northen part of Delaware that had more individuals applying for loans. I could look into the zip codes in that area and data about the businesses (and their industries) to see whether they are more likely to apply for loans based on the profitability of their services/products. This would be the minimum story. The maximum story could dive into a specific company, the owner, their political affiliaition, and other background information that could help explain their high loan amount.  
